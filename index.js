@@ -1,42 +1,60 @@
 const express = require('express');
-const axios = require('axios');
-const cheerio = require('cheerio');
+const puppeteer = require('puppeteer-extra');
+const StealthPlugin = require('puppeteer-extra-plugin-stealth');
+
+// Aktifin mode siluman biar ga kena blokir Cloudflare
+puppeteer.use(StealthPlugin());
 
 const app = express();
+app.use(express.json());
 
-app.get('/scrape', async (req, res) => {
-    // Ngambil link dari query URL (contoh: /scrape?url=https://webnya.com)
-    const targetUrl = req.query.url;
+app.get('/generate', async (req, res) => {
+    const prompt = req.query.prompt;
+    if (!prompt) return res.status(400).json({ error: "Isi prompt-nya dulu woi di ?prompt=" });
 
-    if (!targetUrl) {
-        return res.status(400).json({ error: "Kasih link targetnya dulu dong bang di parameter ?url=" });
-    }
-
+    let browser;
     try {
-        const { data } = await axios.get(targetUrl);
-        const $ = cheerio.load(data);
-        
-        let hasil = [];
-        
-        // CONTOH: Ngambil semua teks dari tag <title> dan <h1>. 
-        // Nanti ini tinggal disesuaikan sama struktur HTML web target lu
-        const judulWeb = $('title').text();
-        $('h1').each((i, el) => {
-            hasil.push($(el).text().trim());
+        console.log("Buka browser siluman...");
+        // Settingan wajib buat deploy di server gratisan (Render/Koyeb)
+        browser = await puppeteer.launch({ 
+            headless: true, 
+            args: ['--no-sandbox', '--disable-setuid-sandbox'] 
         });
+        
+        const page = await browser.newPage();
+        
+        // Contoh: Buka web AI gratisan target lu
+        console.log("Otw ke web target...");
+        await page.goto('https://namapage-ai-video-gratisan.com', { waitUntil: 'networkidle2' });
+
+        // Ngetik prompt otomatis ke form input webnya
+        console.log("Ngetik prompt...");
+        await page.type('input[placeholder="Enter your prompt"]', prompt); // Ganti selector input-nya sesuai web target
+
+        // Ngeklik tombol generate
+        console.log("Klik tombol generate, tungguin rendering...");
+        await page.click('button[type="submit"]'); // Ganti selector tombolnya
+
+        // Nungguin elemen video atau link download muncul (misal nunggu tag <video> keluar)
+        await page.waitForSelector('video source', { timeout: 120000 }); // Nunggu maksimal 2 menit
+
+        // Colong link videonya
+        const videoUrl = await page.$eval('video source', el => el.src);
 
         res.json({
-            target: targetUrl,
-            judul: judulWeb,
-            data_h1: hasil
+            status: "sukses",
+            prompt: prompt,
+            video_url: videoUrl
         });
 
     } catch (error) {
-        res.status(500).json({ error: "Gagal nge-scrape nih", detail: error.message });
+        res.status(500).json({ error: "Gagal nembus bang", detail: error.message });
+    } finally {
+        if (browser) await browser.close();
     }
 });
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-    console.log(`Scraper ready bang di port ${PORT}`);
+    console.log(`Mesin siluman ready di port ${PORT}`);
 });
